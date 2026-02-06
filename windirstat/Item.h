@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -57,6 +57,9 @@ using ITEMTYPE = enum ITEMTYPE : std::uint32_t
     IT_HLINKS_SET  = 1 << 7,  // Pseudo Folder "Index Set N" under <Hardlinks>
     IT_HLINKS_IDX  = 1 << 8,  // Pseudo Folder "Index N" under Index Set
     IT_HLINKS_FILE = 1 << 9,  // Pseudo File reference under Index N
+    IT_S3BUCKET    = 1 << 10, // AWS S3 bucket root
+    IT_S3PREFIX    = 1 << 11, // AWS S3 prefix (virtual folder)
+    IT_S3OBJECT    = 1 << 12, // AWS S3 object (file)
     IT_MASK        = 0x0000FFFF,
 
     ITHASH_NONE    = 0,       // Indicates no hash

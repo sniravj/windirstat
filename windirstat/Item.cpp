@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,13 +18,15 @@
 #include "pch.h"
 #include "FinderBasic.h"
 #include "FinderNtfs.h"
+#include "FinderS3.h"
+#include "S3ClientManager.h"
 
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "bcrypt.lib")
 
 CItem::CItem(const ITEMTYPE type, const std::wstring & name) : m_type(type)
 {
-    if (IsTypeOrFlag(IT_MYCOMPUTER, IT_DRIVE, IT_DIRECTORY, IT_HLINKS, IT_HLINKS_SET, IT_HLINKS_IDX))
+    if (IsTypeOrFlag(IT_MYCOMPUTER, IT_DRIVE, IT_DIRECTORY, IT_HLINKS, IT_HLINKS_SET, IT_HLINKS_IDX, IT_S3BUCKET, IT_S3PREFIX))
     {
         m_folderInfo = std::make_unique<CHILDINFO>();
 
@@ -35,7 +37,13 @@ CItem::CItem(const ITEMTYPE type, const std::wstring & name) : m_type(type)
         }
     }
 
-    if (IsTypeOrFlag(IT_DRIVE))
+    if (IsTypeOrFlag(IT_S3BUCKET))
+    {
+        // S3 bucket root - store as s3://bucket-name
+        SetName(name);
+        m_attributes = FILE_ATTRIBUTE_DIRECTORY;
+    }
+    else if (IsTypeOrFlag(IT_DRIVE))
     {
         // Store drive paths with a backslash
         std::wstring nameTmp = name;
@@ -360,6 +368,16 @@ HICON CItem::GetIcon()
         m_visualInfo->icon = GetIconHandler()->GetMyComputerImage();
         return m_visualInfo->icon;
     }
+    else if (IsTypeOrFlag(IT_S3BUCKET))
+    {
+        m_visualInfo->icon = GetIconHandler()->GetS3BucketImage();
+        return m_visualInfo->icon;
+    }
+    else if (IsTypeOrFlag(IT_S3PREFIX))
+    {
+        m_visualInfo->icon = GetIconHandler()->GetS3PrefixImage();
+        return m_visualInfo->icon;
+    }
     else if (IsTypeOrFlag(IT_FREESPACE))
     {
         m_visualInfo->icon = GetIconHandler()->GetFreeSpaceImage();
@@ -394,8 +412,20 @@ HICON CItem::GetIcon()
     }
 
     const CItem* refItem = GetLinkedItem();
-    CDirStatApp::Get()->GetIconHandler()->DoAsyncShellInfoLookup(std::make_tuple(const_cast<CItem*>(this),
-        m_visualInfo->control, refItem->GetPath(), refItem->GetAttributes(), &m_visualInfo->icon, nullptr));
+    
+    // For S3 objects, use file extension to determine icon
+    if (IsTypeOrFlag(IT_S3OBJECT))
+    {
+        // Create a fake filename with the extension to get the appropriate icon
+        const std::wstring fileName = GetName();
+        CDirStatApp::Get()->GetIconHandler()->DoAsyncShellInfoLookup(std::make_tuple(const_cast<CItem*>(this),
+            m_visualInfo->control, fileName, FILE_ATTRIBUTE_NORMAL, &m_visualInfo->icon, nullptr));
+    }
+    else
+    {
+        CDirStatApp::Get()->GetIconHandler()->DoAsyncShellInfoLookup(std::make_tuple(const_cast<CItem*>(this),
+            m_visualInfo->control, refItem->GetPath(), refItem->GetAttributes(), &m_visualInfo->icon, nullptr));
+    }
 
     return nullptr;
 }
@@ -435,6 +465,11 @@ ULONGLONG CItem::GetProgressRange() const
     {
         return 0;
     }
+    if (IsTypeOrFlag(IT_S3BUCKET, IT_S3PREFIX, IT_S3OBJECT))
+    {
+        // S3 items don't have a fixed progress range since we enumerate dynamically
+        return 0;
+    }
 
     ASSERT(FALSE);
     return 0;
@@ -458,12 +493,23 @@ ULONGLONG CItem::GetProgressPos() const
         pos -= (fs != nullptr) ? fs->GetSizePhysical() : 0;
         return pos;
     }
+    if (IsTypeOrFlag(IT_S3BUCKET, IT_S3PREFIX, IT_S3OBJECT))
+    {
+        // S3 items: return current scanned size as progress
+        return GetSizePhysical();
+    }
 
     return 0;
 }
 
 void CItem::UpdateStatsFromDisk()
 {
+    // S3 items don't need stats updates from disk
+    if (IsTypeOrFlag(IT_S3BUCKET, IT_S3PREFIX, IT_S3OBJECT))
+    {
+        return;
+    }
+    
     if (IsTypeOrFlag(IT_DIRECTORY, IT_FILE))
     {
         FinderBasic finder(true);
@@ -739,7 +785,7 @@ void CItem::UpwardSubtractSizeLogical(const ULONGLONG bytes) noexcept
 
 void CItem::ExtensionDataAdd()
 {
-    if (!IsTypeOrFlag(IT_FILE) || IsTypeOrFlag(ITF_EXTDATA)) return;
+    if (!IsTypeOrFlag(IT_FILE, IT_S3OBJECT) || IsTypeOrFlag(ITF_EXTDATA)) return;
     const auto record = CDirStatDoc::Get()->GetExtensionDataRecord(GetExtension());
     record->AddFile(GetSizeLogical());
     SetFlag(ITF_EXTDATA);
@@ -747,7 +793,7 @@ void CItem::ExtensionDataAdd()
 
 void CItem::ExtensionDataRemove()
 {
-    if (!IsTypeOrFlag(IT_FILE) || !IsTypeOrFlag(ITF_EXTDATA)) return;
+    if (!IsTypeOrFlag(IT_FILE, IT_S3OBJECT) || !IsTypeOrFlag(ITF_EXTDATA)) return;
     const auto record = CDirStatDoc::Get()->GetExtensionDataRecord(GetExtension());
     record->RemoveFile(GetSizeLogical());
     if (record->GetFiles() == 0) CDirStatDoc::Get()->GetExtensionData()->erase(GetExtension());
@@ -950,6 +996,7 @@ std::wstring CItem::GetPath() const
     {
         path += L"\\";
     }
+    // S3 buckets don't need trailing slashes
     return path;
 }
 
@@ -1020,10 +1067,10 @@ std::wstring_view CItem::GetNameView() const noexcept
 
 std::wstring CItem::GetExtension() const
 {
-    if (!IsTypeOrFlag(IT_FILE)) return GetName();
+    if (!IsTypeOrFlag(IT_FILE, IT_S3OBJECT)) return GetName();
     const auto extName = GetNameView();
     const auto pos = extName.rfind('.');
-    if (pos == std::wstring_view::npos) return {};
+    if (pos == std::wstring_view::npos) return L".no_extension";  // Group files without extensions
     std::wstring extLower(extName.substr(pos));
     _wcslwr_s(extLower.data(), extLower.size() + 1);
     return extLower;
@@ -1124,6 +1171,7 @@ void CItem::ScanItems(BlockingQueue<CItem*> * queue, FinderNtfsContext& contextN
 {
     FinderNtfs finderNtfs(&contextNtfs);
     FinderBasic finderBasic(&contextBasic);
+    FinderS3 finderS3;
 
     for (auto itemOpt = queue->Pop(); itemOpt.has_value(); itemOpt = queue->Pop())
     {
@@ -1139,7 +1187,58 @@ void CItem::ScanItems(BlockingQueue<CItem*> * queue, FinderNtfsContext& contextN
             contextNtfs.LoadRoot(item);
         }
 
-        if (item->IsTypeOrFlag(IT_DRIVE, IT_DIRECTORY))
+        // Handle S3 bucket/prefix scanning
+        if (item->IsTypeOrFlag(IT_S3BUCKET, IT_S3PREFIX))
+        {
+            Finder* finder = &finderS3;
+            
+            for (BOOL b = finder->FindFile(item); b; b = finder->FindNext())
+            {
+                if (finder->IsDirectory())
+                {
+                    // This is an S3 prefix (folder)
+                    item->UpwardAddFolders(1);
+                    CItem* newitem = item->AddDirectory(*finder);
+                    // Mark as S3 prefix instead of directory
+                    newitem->m_type = (newitem->m_type & ~IT_DIRECTORY) | IT_S3PREFIX;
+                    
+                    //VTRACE(L"S3 PREFIX created: '{}', ReadJobs={}", newitem->GetName(), newitem->GetReadJobs());
+                    
+                    // S3 prefixes always need to be scanned recursively
+                    // If GetReadJobs() is 0, we need to add 1 to ensure it gets scanned
+                    if (newitem->GetReadJobs() == 0)
+                    {
+                        //VTRACE(L"  Adding read job for S3 prefix '{}'", newitem->GetName());
+                        newitem->UpwardAddReadJobs(1);
+                    }
+                    
+                    if (newitem->GetReadJobs() > 0)
+                    {
+                        //VTRACE(L"  Pushing '{}' to scan queue", newitem->GetName());
+                        queue->Push(newitem);
+                    }
+                    else
+                    {
+                        //VTRACE(L"  WARNING: '{}' NOT pushed to queue (ReadJobs=0)", newitem->GetName());
+                    }
+                }
+                else
+                {
+                    // This is an S3 object (file)
+                    item->UpwardAddFiles(1);
+                    CItem* newitem = item->AddFile(*finder);
+                    // Mark as S3 object
+                    newitem->m_type = (newitem->m_type & ~IT_FILE) | IT_S3OBJECT;
+                    CFileDupeControl::Get()->ProcessDuplicate(newitem, queue);
+                    CFileTopControl::Get()->ProcessTop(newitem);
+                    queue->WaitIfSuspended();
+                }
+
+                // Update pacman position
+                item->UpwardDrivePacman();
+            }
+        }
+        else if (item->IsTypeOrFlag(IT_DRIVE, IT_DIRECTORY))
         {
             Finder* finder = contextNtfs.IsLoaded() && !item->IsTypeOrFlag(ITF_BASIC) ?
                 reinterpret_cast<Finder*>(&finderNtfs) : reinterpret_cast<Finder*>(&finderBasic);
@@ -1665,7 +1764,7 @@ COLORREF CItem::GetGraphColor() const
         return RGB(200, 150, 100) | CTreeMap::COLORFLAG_LIGHTER;
     }
 
-    if (IsTypeOrFlag(IT_FILE))
+    if (IsTypeOrFlag(IT_FILE, IT_S3OBJECT))
     {
         return CDirStatDoc::Get()->GetCushionColor(GetExtension());
     }
@@ -1715,10 +1814,36 @@ std::wstring CItem::UpwardGetPathWithoutBackslash() const
         pathParts.emplace_back(p);
     }
 
+    // Check if this is an S3 path
+    bool isS3 = false;
+    if (!pathParts.empty() && pathParts.back()->IsTypeOrFlag(IT_S3BUCKET))
+    {
+        isS3 = true;
+    }
+
     // append the strings in reverse order
     for (auto it = pathParts.rbegin(); it != pathParts.rend(); ++it) [[msvc::forceinline_calls]]
     {
-        if (const auto & pathPart = *it; pathPart->IsTypeOrFlag(IT_DIRECTORY))
+        if (const auto & pathPart = *it; pathPart->IsTypeOrFlag(IT_S3BUCKET))
+        {
+            // S3 bucket root: s3://bucket-name
+            path.append(L"s3://").append(pathPart->m_name.get(), pathPart->m_nameLen);
+        }
+        else if (pathPart->IsTypeOrFlag(IT_S3PREFIX))
+        {
+            // S3 prefix (folder): add leading slash only if path doesn't already end with one
+            if (!path.ends_with(L'/'))
+            {
+                path.append(L"/");
+            }
+            path.append(pathPart->m_name.get(), pathPart->m_nameLen).append(L"/");
+        }
+        else if (pathPart->IsTypeOrFlag(IT_S3OBJECT))
+        {
+            // S3 object (file): add with leading forward slash
+            path.append(L"/").append(pathPart->m_name.get(), pathPart->m_nameLen);
+        }
+        else if (pathPart->IsTypeOrFlag(IT_DIRECTORY))
         {
             path.append(pathPart->m_name.get(), pathPart->m_nameLen).append(L"\\");
         }
@@ -1732,10 +1857,26 @@ std::wstring CItem::UpwardGetPathWithoutBackslash() const
         }
     }
 
-    // Remove trailing backslashes
-    if (const auto pos = path.find_last_not_of(L'\\'); pos != std::wstring::npos)
+    // Remove trailing slashes
+    if (isS3)
     {
-        path.erase(pos + 1);
+        // For S3PREFIX items, keep the trailing slash
+        // For S3BUCKET and S3OBJECT items, remove trailing slashes
+        if (!IsTypeOrFlag(IT_S3PREFIX))
+        {
+            if (const auto pos = path.find_last_not_of(L'/'); pos != std::wstring::npos && pos < path.length() - 1)
+            {
+                path.erase(pos + 1);
+            }
+        }
+    }
+    else
+    {
+        // Remove trailing backslashes for filesystem
+        if (const auto pos = path.find_last_not_of(L'\\'); pos != std::wstring::npos)
+        {
+            path.erase(pos + 1);
+        }
     }
     return path;
 }

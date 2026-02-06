@@ -1,4 +1,4 @@
-﻿//{{NO_DEPENDENCIES}}
+//{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
 // Used by windirstat.rc
 //
@@ -41,6 +41,11 @@
 #define IDC_RADIO_TARGET_DRIVES_SUBSET  1001
 #define IDC_RADIO_TARGET_FOLDER         1002
 #define IDC_TARGET_DRIVES_LIST          1003
+#define IDC_RADIO_TARGET_S3BUCKET       1200
+#define IDC_S3_BUCKET_NAME              1201
+#define IDC_S3_ACCESS_KEY               1202
+#define IDC_S3_SECRET_KEY               1203
+#define IDC_S3_REGION                   1204
 #define IDC_TAB                         1004
 #define IDC_CAPTION                     1005
 #define IDC_PACMANANIMATION             1007

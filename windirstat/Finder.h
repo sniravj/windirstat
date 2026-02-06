@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -71,6 +71,9 @@ public:
 
     static std::wstring MakeLongPathCompatible(const std::wstring& path)
     {
+        // S3 URIs don't need path conversion
+        if (path.starts_with(L"s3://")) return path;
+        
         if (path.find(L":\\", 1) == 1) return s_longPath.data() + path;
         if (path.starts_with(L"\\\\?")) return path;
         if (path.starts_with(L"\\\\")) return s_longUNCPath.data() + path.substr(2);

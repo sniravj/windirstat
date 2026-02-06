@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@
 #include "pch.h"
 #include "SelectDrivesDlg.h"
 #include "FinderBasic.h"
+#include "S3ClientManager.h"
 
 namespace
 {
@@ -341,12 +342,23 @@ void CSelectDrivesDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_BROWSE_FOLDER, m_browseList);
     DDX_Control(pDX, IDC_BROWSE_BUTTON, m_browseButton);
     DDX_CBString(pDX, IDC_BROWSE_FOLDER, m_folderName);
+    
+    // S3 controls
+    DDX_Control(pDX, IDC_S3_BUCKET_NAME, m_s3BucketName);
+    DDX_Control(pDX, IDC_S3_ACCESS_KEY, m_s3AccessKey);
+    DDX_Control(pDX, IDC_S3_SECRET_KEY, m_s3SecretKey);
+    DDX_Control(pDX, IDC_S3_REGION, m_s3Region);
+    DDX_Text(pDX, IDC_S3_BUCKET_NAME, m_s3BucketNameStr);
+    DDX_Text(pDX, IDC_S3_ACCESS_KEY, m_s3AccessKeyStr);
+    DDX_Text(pDX, IDC_S3_SECRET_KEY, m_s3SecretKeyStr);
+    DDX_CBString(pDX, IDC_S3_REGION, m_s3RegionStr);
 }
 
 BEGIN_MESSAGE_MAP(CSelectDrivesDlg, CLayoutDialogEx)
     ON_BN_CLICKED(IDC_RADIO_TARGET_DRIVES_ALL, OnBnClickedUpdateButtons)
     ON_BN_CLICKED(IDC_RADIO_TARGET_DRIVES_SUBSET, &CSelectDrivesDlg::OnBnClickedRadioTargetDrivesSubset)
     ON_BN_CLICKED(IDC_RADIO_TARGET_FOLDER, &CSelectDrivesDlg::OnBnClickedRadioTargetFolder)
+    ON_BN_CLICKED(IDC_RADIO_TARGET_S3BUCKET, &CSelectDrivesDlg::OnBnClickedRadioTargetS3Bucket)
     ON_BN_CLICKED(IDC_SCAN_DUPLICATES, OnBnClickedUpdateButtons)
     ON_BN_CLICKED(IDC_FAST_SCAN_CHECKBOX, OnBnClickedUpdateButtons)
     ON_MESSAGE(WMU_OK, OnWmuOk)
@@ -359,6 +371,10 @@ BEGIN_MESSAGE_MAP(CSelectDrivesDlg, CLayoutDialogEx)
     ON_BN_CLICKED(IDC_BROWSE_BUTTON, &CSelectDrivesDlg::OnBnClickedBrowseButton)
     ON_CBN_EDITCHANGE(IDC_BROWSE_FOLDER, &CSelectDrivesDlg::OnEditchangeBrowseFolder)
     ON_CBN_SELCHANGE(IDC_BROWSE_FOLDER, &CSelectDrivesDlg::OnCbnSelchangeBrowseFolder)
+    ON_EN_CHANGE(IDC_S3_BUCKET_NAME, OnBnClickedUpdateButtons)
+    ON_EN_CHANGE(IDC_S3_ACCESS_KEY, OnBnClickedUpdateButtons)
+    ON_EN_CHANGE(IDC_S3_SECRET_KEY, OnBnClickedUpdateButtons)
+    ON_CBN_SELCHANGE(IDC_S3_REGION, OnBnClickedUpdateButtons)
 END_MESSAGE_MAP()
 
 BOOL CSelectDrivesDlg::OnInitDialog()
@@ -422,6 +438,20 @@ BOOL CSelectDrivesDlg::OnInitDialog()
         m_browseList.SetCurSel(0);
         m_folderName = COptions::SelectDrivesFolder.Obj().front().c_str();
     }
+
+    // Populate S3 region dropdown
+    m_s3Region.AddString(L"us-east-1");
+    m_s3Region.AddString(L"us-east-2");
+    m_s3Region.AddString(L"us-west-1");
+    m_s3Region.AddString(L"us-west-2");
+    m_s3Region.AddString(L"eu-west-1");
+    m_s3Region.AddString(L"eu-central-1");
+    m_s3Region.AddString(L"ap-south-1");
+    m_s3Region.AddString(L"ap-southeast-1");
+    m_s3Region.AddString(L"ap-southeast-2");
+    m_s3Region.AddString(L"ap-northeast-1");
+    m_s3Region.SetCurSel(0); // Default to us-east-1
+    m_s3RegionStr = L"us-east-1"; // Sync the variable with the selection
 
     UpdateData(FALSE);
 
@@ -496,7 +526,21 @@ void CSelectDrivesDlg::OnOK()
 
     m_drives.clear();
     m_selectedDrives.clear();
-    if (m_radio == RADIO_TARGET_FOLDER)
+    
+    if (m_radio == RADIO_TARGET_S3BUCKET)
+    {
+        // Store S3 credentials in S3ClientManager
+        CS3ClientManager::Get().SetCredentials(
+            m_s3BucketNameStr.GetString(),
+            m_s3AccessKeyStr.GetString(),
+            m_s3SecretKeyStr.GetString(),
+            m_s3RegionStr.GetString()
+        );
+        
+        // Create S3 URI: s3://bucket-name
+        m_drives.push_back(std::format(L"s3://{}", m_s3BucketNameStr.GetString()));
+    }
+    else if (m_radio == RADIO_TARGET_FOLDER)
     {
         if (m_folderName.GetAt(m_folderName.GetLength() - 1) == L':') m_folderName.AppendChar(L'\\');
         m_folderName = GetFullPathName(m_folderName.GetString()).c_str();
@@ -561,6 +605,13 @@ void CSelectDrivesDlg::UpdateButtons()
         }
     }
 
+    // Enable/disable S3 controls based on selected radio (keep them visible)
+    const BOOL enableS3 = (m_radio == RADIO_TARGET_S3BUCKET);
+    GetDlgItem(IDC_S3_BUCKET_NAME)->EnableWindow(enableS3);
+    GetDlgItem(IDC_S3_ACCESS_KEY)->EnableWindow(enableS3);
+    GetDlgItem(IDC_S3_SECRET_KEY)->EnableWindow(enableS3);
+    GetDlgItem(IDC_S3_REGION)->EnableWindow(enableS3);
+
     bool enableOk = false;
     switch (m_radio)
     {
@@ -586,6 +637,13 @@ void CSelectDrivesDlg::UpdateButtons()
                 enableOk = FinderBasic::DoesFileExist(m_folderName.GetString());
             }
         }
+        break;
+    case RADIO_TARGET_S3BUCKET:
+        // Enable OK if all S3 fields are filled
+        enableOk = !m_s3BucketNameStr.IsEmpty() && 
+                   !m_s3AccessKeyStr.IsEmpty() && 
+                   !m_s3SecretKeyStr.IsEmpty() &&
+                   !m_s3RegionStr.IsEmpty();
         break;
     default:
         {
@@ -697,9 +755,18 @@ BOOL CSelectDrivesDlg::PreTranslateMessage(MSG* pMsg)
 
 std::vector<std::wstring> CSelectDrivesDlg::GetSelectedItems() const
 {
-    return (m_radio == RADIO_TARGET_DRIVES_ALL) ? m_drives :
-        (m_radio == RADIO_TARGET_DRIVES_SUBSET) ? m_selectedDrives :
-        std::vector<std::wstring>{ m_folderName.GetString() };
+    if (m_radio == RADIO_TARGET_DRIVES_ALL || m_radio == RADIO_TARGET_S3BUCKET)
+    {
+        return m_drives;
+    }
+    else if (m_radio == RADIO_TARGET_DRIVES_SUBSET)
+    {
+        return m_selectedDrives;
+    }
+    else // RADIO_TARGET_FOLDER
+    {
+        return std::vector<std::wstring>{ m_folderName.GetString() };
+    }
 }
 
 HBRUSH CSelectDrivesDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, const UINT nCtlColor)
@@ -740,7 +807,7 @@ void CSelectDrivesDlg::OnEditchangeBrowseFolder()
 
 void CSelectDrivesDlg::SetActiveRadio(const int radio)
 {
-    CheckRadioButton(IDC_RADIO_TARGET_DRIVES_ALL, IDC_RADIO_TARGET_FOLDER, radio);
+    CheckRadioButton(IDC_RADIO_TARGET_DRIVES_ALL, IDC_RADIO_TARGET_S3BUCKET, radio);
 }
 
 void CSelectDrivesDlg::OnCbnSelchangeBrowseFolder()
@@ -748,5 +815,14 @@ void CSelectDrivesDlg::OnCbnSelchangeBrowseFolder()
     // Get the current selection text and assess if valid for okay button
     m_browseList.GetLBText(m_browseList.GetCurSel(), m_folderName);
     UpdateData(FALSE);
+    UpdateButtons();
+}
+
+void CSelectDrivesDlg::OnBnClickedRadioTargetS3Bucket()
+{
+    // dynamically adjust next tab order
+    GetDlgItem(IDC_TARGET_DRIVES_LIST)->SetWindowPos(
+        GetDlgItem(IDC_S3_BUCKET_NAME), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
     UpdateButtons();
 }

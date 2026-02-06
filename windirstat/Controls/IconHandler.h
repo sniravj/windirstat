@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -62,6 +62,8 @@ public:
     HICON m_junctionProtected = nullptr; // For protected junctions
     HICON m_mountPointImage = nullptr;   // Mount point icon
     HICON m_myComputerImage = nullptr;   // My computer icon
+    HICON m_s3BucketImage = nullptr;     // AWS S3 bucket icon
+    HICON m_s3PrefixImage = nullptr;     // AWS S3 prefix (folder) icon
 
     // Trivial getters
     HICON GetMyComputerImage() const { return m_myComputerImage; }
@@ -76,4 +78,6 @@ public:
     HICON GetDupesImage() const { return m_dupesImage; }
     HICON GetSearchImage() const { return m_searchImage; }
     HICON GetLargestImage() const { return m_largestImage; }
+    HICON GetS3BucketImage() const { return m_s3BucketImage; }
+    HICON GetS3PrefixImage() const { return m_s3PrefixImage; }
 };

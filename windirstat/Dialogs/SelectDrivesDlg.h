@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -28,7 +28,8 @@ enum RADIO : std::uint8_t
 {
     RADIO_TARGET_DRIVES_ALL,
     RADIO_TARGET_DRIVES_SUBSET,
-    RADIO_TARGET_FOLDER
+    RADIO_TARGET_FOLDER,
+    RADIO_TARGET_S3BUCKET
 };
 
 class CDrivesList;
@@ -133,6 +134,16 @@ protected:
     CButton m_browseButton;
     std::vector<std::wstring> m_selectedDrives;
 
+    // S3 controls and data
+    CEdit m_s3BucketName;
+    CEdit m_s3AccessKey;
+    CEdit m_s3SecretKey;
+    CComboBox m_s3Region;
+    CStringW m_s3BucketNameStr;
+    CStringW m_s3AccessKeyStr;
+    CStringW m_s3SecretKeyStr;
+    CStringW m_s3RegionStr;
+
     DECLARE_MESSAGE_MAP()
     afx_msg void OnBnClickedUpdateButtons();
     afx_msg void OnLvnItemChangedDrives(NMHDR* pNMHDR, LRESULT* pResult);
@@ -142,6 +153,7 @@ protected:
     afx_msg void OnSysColorChange();
     afx_msg void OnBnClickedRadioTargetDrivesSubset();
     afx_msg void OnBnClickedRadioTargetFolder();
+    afx_msg void OnBnClickedRadioTargetS3Bucket();
     afx_msg void OnNMSetfocusTargetDrivesList(NMHDR*, LRESULT* pResult);
     afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
     afx_msg void OnBnClickedBrowseButton();

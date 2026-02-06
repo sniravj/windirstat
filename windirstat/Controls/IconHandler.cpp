@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -48,6 +48,10 @@ void CIconHandler::Initialize()
         m_searchImage = IconFromFontChar(L'⊙', DarkMode::WdsSysColor(COLOR_WINDOWTEXT));
         m_largestImage = IconFromFontChar(L'⋙', DarkMode::WdsSysColor(COLOR_WINDOWTEXT));
         m_unknownImage = IconFromFontChar(L'?', RGB(0xCC,0xB8,0x66), true);
+        
+        // AWS S3 icons
+        m_s3BucketImage = IconFromFontChar(L'☁', RGB(0xFF, 0x99, 0x00), true); // Orange cloud for bucket
+        m_s3PrefixImage = IconFromFontChar(L'◉', RGB(0x3A, 0x9F, 0xD9), true); // Blue circle for prefix/folder
         
         // Cache icon for boot drive
         std::wstring drive(MAX_PATH, wds::chrNull);

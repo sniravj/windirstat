@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -38,6 +38,7 @@ public:
 
     CDirStatApp();
     BOOL InitInstance() override;
+    int ExitInstance() override;
     BOOL LoadState(LPCTSTR, CFrameImpl*) override { return TRUE; }
     BOOL IsIdleMessage(MSG* pMsg) override;
 

@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,6 +21,7 @@
 #include "TreeMapView.h"
 #include "PageFiltering.h"
 #include "CsvLoader.h"
+#include "S3ClientManager.h"
 
 CIconHandler* GetIconHandler()
 {
@@ -334,6 +335,9 @@ BOOL CDirStatApp::InitInstance()
     ULONG_PTR gdiplusToken;
     Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
 
+    // Initialize AWS S3 Client Manager
+    CS3ClientManager::Get().Initialize();
+
     m_pDocTemplate = new CSingleDocTemplate(
         IDR_MAINFRAME,
         RUNTIME_CLASS(CDirStatDoc),
@@ -408,6 +412,14 @@ BOOL CDirStatApp::InitInstance()
         (void)m_pDocTemplate->OpenDocumentFile(cmdInfo.m_strFileName, true);
 
     return TRUE;
+}
+
+int CDirStatApp::ExitInstance()
+{
+    // Shutdown AWS S3 Client Manager
+    CS3ClientManager::Get().Shutdown();
+    
+    return CWinAppEx::ExitInstance();
 }
 
 BOOL CDirStatApp::IsIdleMessage(MSG* pMsg)

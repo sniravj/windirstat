@@ -1,4 +1,4 @@
-﻿// WinDirStat - Directory Statistics
+// WinDirStat - Directory Statistics
 // Copyright © WinDirStat Team
 //
 // This program is free software: you can redistribute it and/or modify
@@ -23,6 +23,8 @@
 #include "FileSearchControl.h"
 #include "FinderBasic.h"
 #include "FinderNtfs.h"
+#include "FinderS3.h"
+#include "S3ClientManager.h"
 #include "SearchDlg.h"
 #include "ProgressDlg.h"
 
@@ -100,6 +102,35 @@ BOOL CDirStatDoc::OnOpenDocument(LPCWSTR lpszPathName)
 
     // Call base class to commit path to internal doc name string
     Get()->SetPathName(spec.c_str(), FALSE);
+
+    // Check for S3 URI
+    const bool isS3 = !selections.empty() && selections.front().starts_with(L"s3://");
+    
+    if (isS3)
+    {
+        // Handle S3 bucket scanning
+        const std::wstring& s3Uri = selections.front();
+        
+        // Extract bucket name from s3://bucket-name
+        std::wstring bucketName = s3Uri.substr(5); // Skip "s3://"
+        if (bucketName.ends_with(L'/'))
+        {
+            bucketName = bucketName.substr(0, bucketName.length() - 1);
+        }
+        
+        // Create S3 bucket root item
+        m_rootItem = new CItem(IT_S3BUCKET | ITF_ROOTITEM, bucketName);
+        m_rootItem->UpdateStatsFromDisk();
+        
+        // Restore zoom scope to be the root
+        m_zoomItem = m_rootItem;
+        
+        // Update new root for display
+        UpdateAllViews(nullptr, HINT_NEWROOT);
+        StartScanningEngine(std::vector({ Get()->GetRootItem() }));
+        
+        return TRUE;
+    }
 
     // Count number of drives for validation
     const std::wregex driveMatch(LR"(^[A-Za-z]:[\\]?$)", std::regex_constants::optimize);
@@ -325,6 +356,14 @@ void CDirStatDoc::OpenItem(const CItem* item, const std::wstring & verb)
     // Ignore if special reserved item
     if (item->IsTypeOrFlag(ITF_RESERVED)) return;
 
+    // Handle S3 items differently
+    if (item->IsTypeOrFlag(IT_S3BUCKET, IT_S3PREFIX, IT_S3OBJECT))
+    {
+        // Show custom S3 properties dialog
+        ShowS3Properties(item);
+        return;
+    }
+
     // Determine path to feed into shell function
     SmartPointer<LPITEMIDLIST> pidl(CoTaskMemFree, nullptr);
     if (item->IsTypeOrFlag(IT_MYCOMPUTER))
@@ -437,6 +476,16 @@ void CDirStatDoc::RebuildExtensionData()
 
 void CDirStatDoc::DeletePhysicalItems(const std::vector<CItem*>& items, const bool toTrashBin, const bool emptyOnly) const
 {
+    // Check if we're dealing with S3 items
+    const bool isS3 = !items.empty() && items.front()->IsTypeOrFlag(IT_S3BUCKET, IT_S3PREFIX, IT_S3OBJECT);
+    
+    // S3 items cannot be moved to trash bin
+    if (isS3 && toTrashBin)
+    {
+        AfxMessageBox(L"S3 objects cannot be moved to the trash bin. They will be permanently deleted.", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    
     if (COptions::ShowDeleteWarning)
     {
         // Build list of file paths for the message box
@@ -467,6 +516,14 @@ void CDirStatDoc::DeletePhysicalItems(const std::vector<CItem*>& items, const bo
     {
         auto childrenView = items | std::views::transform(&CItem::GetChildren) | std::views::join;
         itemsToDelete.assign(childrenView.begin(), childrenView.end());
+    }
+    
+    // Handle S3 item deletion separately
+    if (isS3)
+    {
+        DeleteS3Items(itemsToDelete);
+        RefreshItem(items);
+        return;
     }
 
     // Calculate total item count for progress tracking
@@ -564,6 +621,81 @@ void CDirStatDoc::DeletePhysicalItems(const std::vector<CItem*>& items, const bo
     std::vector<CItem*> itemsToRefresh = items;
     itemsToRefresh.insert(itemsToRefresh.end(), recyclers.begin(), recyclers.end());
     RefreshItem(itemsToRefresh);
+}
+
+void CDirStatDoc::DeleteS3Items(const std::vector<CItem*>& items) const
+{
+    // Calculate total item count for progress tracking
+    size_t totalItems = 0;
+    for (const auto& item : items)
+    {
+        totalItems += static_cast<size_t>(1 + item->GetItemsCount());
+    }
+
+    CProgressDlg(totalItems, false, AfxGetMainWnd(), [&](CProgressDlg* pdlg)
+    {
+        // Collect all items depth-first
+        std::vector<const CItem*> allItems;
+        std::vector<CItem*> stack{ items };
+        while (!stack.empty())
+        {
+            const CItem* item = stack.back(); stack.pop_back();
+
+            allItems.push_back(item);
+            if (item->HasChildren())
+            {
+                const auto& children = item->GetChildren();
+                stack.insert(stack.end(), children.begin(), children.end());
+            }
+        }
+
+        // Delete in reverse order (children before parents)
+        for (const auto& item : allItems | std::views::reverse)
+        {
+            if (pdlg->IsCancelled())
+            {
+                return;
+            }
+
+            // TODO: When AWS SDK is integrated, call DeleteObject API here
+            // For now, this is a stub that will be implemented later
+            // Example: CS3ClientManager::Get().DeleteObject(bucket, key);
+            
+            // Log the deletion for debugging
+            VTRACE(L"Would delete S3 item: {}", item->GetPath());
+
+            pdlg->Increment();
+        }
+    }).DoModal();
+}
+
+void CDirStatDoc::ShowS3Properties(const CItem* item)
+{
+    ASSERT(item != nullptr);
+    
+    // Build properties message
+    std::wstring props;
+    props += L"S3 Object Properties\n\n";
+    props += L"Path: " + item->GetPath() + L"\n";
+    props += L"Name: " + item->GetName() + L"\n";
+    props += L"Size: " + FormatBytes(item->GetSizeLogical()) + L"\n";
+    
+    if (item->IsTypeOrFlag(IT_S3BUCKET))
+    {
+        props += L"Type: S3 Bucket\n";
+    }
+    else if (item->IsTypeOrFlag(IT_S3PREFIX))
+    {
+        props += L"Type: S3 Prefix (Folder)\n";
+    }
+    else if (item->IsTypeOrFlag(IT_S3OBJECT))
+    {
+        props += L"Type: S3 Object (File)\n";
+    }
+    
+    props += L"\nNote: Additional S3 metadata (storage class, encryption, tags) will be available when AWS SDK is integrated.";
+    
+    AfxMessageBox(props.c_str(), MB_OK | MB_ICONINFORMATION);
 }
 
 void CDirStatDoc::SetZoomItem(CItem* item)
