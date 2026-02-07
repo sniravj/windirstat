@@ -27,6 +27,7 @@
 #include "S3ClientManager.h"
 #include "SearchDlg.h"
 #include "ProgressDlg.h"
+#include "HtmlExporter.h"
 
 IMPLEMENT_DYNCREATE(CDirStatDoc, CDocument)
 
@@ -2074,6 +2075,9 @@ void CDirStatDoc::StartScanningEngine(std::vector<CItem*> items)
                 item->SetScrollPosition(visualInfo[item].scrollPosition);
                 if (visualInfo[item].isSelected) GetFocusControl()->SelectItem(item, false, true);
             }
+
+            // AUTO-EXPORT HTML after scan completes
+            CHtmlExporter::ExportToHtml(Get());
         });
 
         // Force heap cleanup after scan

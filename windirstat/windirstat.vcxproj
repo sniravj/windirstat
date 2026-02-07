@@ -570,6 +570,7 @@
     <ClInclude Include="BlockingQueue.h" />
     <ClInclude Include="CsvLoader.h" />
     <ClInclude Include="DirStatDoc.h" />
+    <ClInclude Include="HtmlExporter.h" />
     <ClInclude Include="FinderBasic.h" />
     <ClInclude Include="FinderS3.h" />
     <ClInclude Include="Item.h" />
@@ -615,6 +616,7 @@
     <ClCompile Include="Dialogs\ProgressDlg.cpp" />
     <ClCompile Include="DirStatDoc.cpp">
     </ClCompile>
+    <ClCompile Include="HtmlExporter.cpp" />
     <ClCompile Include="Pages\PagePrompts.cpp" />
     <ClCompile Include="Views\FileSearchView.cpp" />
     <ClCompile Include="Controls\FileSearchControl.cpp" />
